@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>極簡股息筆記 v41</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <style>
+        :root {
+            --bg: #f8fafc; --text: #1e293b; --accent: #10b981;
+            --sidebar-w: 290px; --danger: #ef4444; --monthly: #3b82f6; 
+            --edit-bg: #fffbeb; --card-bg: #ffffff;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.05);
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: var(--bg); color: var(--text); margin: 0; overflow-x: hidden; }
+
+        /* 側邊欄與收摺邏輯 */
+        #sidebar { position: fixed; left: calc(-1 * var(--sidebar-w)); top: 0; width: var(--sidebar-w); height: 100%; background: #ffffff; box-shadow: 10px 0 40px rgba(0,0,0,0.05); transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1000; display: flex; flex-direction: column; }
+        #sidebar.open { left: 0; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.3); display: none; z-index: 999; backdrop-filter: blur(4px); }
+        
+        .sidebar-header { padding: 25px 20px 15px; }
+        .search-input { width: 100%; padding: 12px 15px; border-radius: 12px; border: 1px solid #e2e8f0; font-size: 0.9rem; background: #f1f5f9; }
+
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 0 20px; }
+        .nav-section { margin-bottom: 15px; }
+        
+        /* 可點擊的收摺標題 */
+        .nav-header { 
+            font-size: 0.75rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; 
+            letter-spacing: 1px; padding: 12px 10px; border-bottom: 1px solid #f1f5f9; 
+            margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; user-select: none;
+        }
+        .nav-header:hover { color: #475569; }
+        .nav-header::after { content: '▼'; font-size: 0.6rem; transition: 0.3s; }
+        .nav-header.collapsed::after { content: '▲'; transform: rotate(180deg); }
+        
+        .nav-list { overflow: hidden; transition: max-height 0.3s ease-out; }
+        .nav-list.collapsed { max-height: 0 !important; }
+
+        .nav-item { padding: 12px 15px; border-radius: 12px; cursor: pointer; font-size: 0.95rem; margin-bottom: 4px; color: #64748b; transition: 0.2s; }
+        .nav-item:hover { background: #f1f5f9; color: var(--text); }
+        .nav-item.active { background: #1e293b; color: white; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+
+        .sidebar-footer { padding: 20px; border-top: 1px solid #f1f5f9; }
+
+        /* 主畫面樣式維持 */
+        header { display: flex; align-items: center; padding: 0 20px; height: 65px; background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid #f1f5f9; position: sticky; top: 0; z-index: 100; }
+        .menu-btn { font-size: 1.6rem; cursor: pointer; color: #475569; width: 40px; }
+        .view-title { font-weight: 900; flex: 1; text-align: center; font-size: 1.1rem; color: #0f172a; }
+
+        .container { padding: 20px; max-width: 500px; margin: 0 auto; }
+        
+        .summary-box { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 25px; border-radius: 28px; margin-bottom: 25px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .sum-val.large { font-size: 2.3rem; font-weight: 900; letter-spacing: -1.5px; }
+        .sum-val.net { color: #34d399; }
+        .avg-bar { margin-top: 15px; font-weight: 700; color: #93c5fd; font-size: 0.9rem; text-align: center; background: rgba(255,255,255,0.08); padding: 10px; border-radius: 14px; }
+
+        .card { background: var(--card-bg); padding: 24px; border-radius: 24px; margin-bottom: 25px; box-shadow: var(--shadow-md); border: 1px solid #f1f5f9; }
+        .card.editing { border: 2px solid #fbbf24; background-color: var(--edit-bg); }
+        label { font-size: 0.75rem; color: #64748b; font-weight: 700; margin-bottom: 6px; display: block; }
+        input, select { width: 100%; border: 1.5px solid #e2e8f0; padding: 13px; border-radius: 14px; font-size: 1rem; color: var(--text); background: #fdfdfe; margin-bottom: 15px; }
+
+        .btn-add { 
+            width: 100%; background: linear-gradient(135deg, #1e293b 0%, #475569 100%); color: white; border: none; 
+            padding: 18px; border-radius: 16px; font-weight: 800; font-size: 1.05rem; cursor: pointer; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); transition: 0.2s;
+        }
+        .btn-add:active { transform: scale(0.96); opacity: 0.9; }
+
+        .item { 
+            background: white; margin-bottom: 12px; padding: 18px; border-radius: 22px; 
+            display: flex; align-items: center; box-shadow: var(--shadow-sm); border: 1px solid #f1f5f9;
+        }
+        .item-title { font-weight: 800; font-size: 1.1rem; color: #0f172a; margin-bottom: 4px; }
+        .monthly-tag { display: inline-block; padding: 5px 12px; border-radius: 10px; font-size: 0.75rem; font-weight: 800; margin-top: 8px; }
+        .tag-blue { background: #eff6ff; color: #3b82f6; }
+        .tag-green { background: #ecfdf5; color: #10b981; }
+        
+        .item-price { color: #0f172a; font-weight: 900; font-size: 1.3rem; }
+        .item-detail-label { font-size: 0.65rem; color: #94a3b8; font-weight: 700; }
+        
+        .action-btn { border: none; background: #fef2f2; padding: 10px; border-radius: 12px; color: #ef4444; cursor: pointer; }
+        .footer-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #e2e8f0; background: white; margin-bottom: 10px; font-size: 0.85rem; font-weight: 600; color: #64748b; cursor: pointer; }
+        .hide { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay" onclick="toggleMenu()"></div>
+    
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <input type="text" class="search-input" id="sidebarSearch" placeholder="🔍 搜尋股票標的..." oninput="renderNav()">
+        </div>
+        
+        <div class="sidebar-content">
+            <div class="nav-section">
+                <div class="nav-item active" id="nav-all" onclick="filterBy('all')">🏠 所有領取紀錄</div>
+            </div>
+            
+            <div class="nav-section">
+                <div class="nav-header" onclick="toggleSection('year-list')">按年度統計</div>
+                <div id="year-list" class="nav-list"></div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-header" onclick="toggleSection('stock-list')">按股票標的</div>
+                <div id="stock-list" class="nav-list"></div>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <button class="footer-btn" onclick="exportCSV()">💾 匯出備份</button>
+            <button class="footer-btn" onclick="document.getElementById('fileInput').click()">📤 匯入備份</button>
+            <input type="file" id="fileInput" class="hide" accept=".csv" onchange="importCSV(this)">
+            <button class="footer-btn" style="color:#ef4444; background:#fff1f2; border:none" onclick="forceReset()">🔄 清空系統</button>
+        </div>
+    </div>
+
+    <header>
+        <div class="menu-btn" onclick="toggleMenu()">☰</div>
+        <div class="view-title" id="currentViewTitle">所有紀錄</div>
+        <div style="width:40px"></div>
+    </header>
+
+    <div class="container">
+        <div class="summary-box">
+            <div id="simpleSum" class="sum-item full" style="text-align:center">
+                <div class="sum-label" style="opacity:0.7; font-size:0.85rem; margin-bottom:8px">累計領取總額</div>
+                <div class="sum-val large" id="totalDisplay">$ 0</div>
+            </div>
+            <div id="yearGrid" class="sum-grid hide">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px">
+                    <div style="text-align:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:15px">
+                        <div style="font-size:0.7rem; opacity:0.6">年度總額</div><div class="sum-val" id="yTotal" style="font-size:1.1rem">$ 0</div>
+                    </div>
+                    <div style="text-align:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:15px">
+                        <div style="font-size:0.7rem; opacity:0.6">年度匯費</div><div class="sum-val" id="yFee" style="font-size:1.1rem; color:#fca5a5">$ 0</div>
+                    </div>
+                </div>
+                <div style="text-align:center; margin-top:15px">
+                    <div style="font-size:0.7rem; opacity:0.6">年度實領淨額</div>
+                    <div class="sum-val large net" id="yNet">$ 0</div>
+                </div>
+                <div class="avg-bar" id="yAvg">📈 總體平均月加薪：$ 0</div>
+            </div>
+        </div>
+
+        <div class="card hide" id="chartCard" style="padding:20px">
+            <div id="chartTitle" style="font-size:0.8rem; font-weight:800; color:#94a3b8; margin-bottom:15px; text-align:center"></div>
+            <canvas id="myChart"></canvas>
+        </div>
+
+        <div class="card" id="inputCard">
+            <div id="editModeLabel" class="hide" style="color:#d97706; font-size:0.75rem; font-weight:900; margin-bottom:15px; text-align:center; background:#fef3c7; padding:8px; border-radius:10px">正在修改紀錄</div>
+            <label>股票名稱</label>
+            <select id="stockSelect" onchange="checkNewStock(this)"><option value="">請選擇標的...</option><option value="NEW_STOCK">+ 新增標的名稱</option></select>
+            <div style="display:flex; gap:12px">
+                <div style="flex:1"><label>配息頻率</label><select id="freqSelect"><option value="12">年配</option><option value="6">半年配</option><option value="3">季配</option><option value="1">月配</option></select></div>
+                <div style="flex:1"><label>匯費金額</label><select id="feeSelect" onchange="checkNewFee(this)"><option value="10">10 元</option><option value="0">0 元</option><option value="NEW_FEE">+ 自定義</option></select></div>
+            </div>
+            <label>領取日期</label><input type="date" id="inputDate">
+            <div style="display:flex; gap:12px; margin-bottom:5px">
+                <div style="flex:1"><label>每股股息</label><input type="number" id="inputPer" step="0.001"></div>
+                <div style="flex:1"><label>持有股數</label><input type="number" id="inputShares"></div>
+            </div>
+            <button class="btn-add" onclick="saveRecord()">確認存入紀錄</button>
+            <input type="hidden" id="editId">
+            <button id="cancelBtn" class="hide" style="width:100%; border:none; background:none; color:#94a3b8; margin-top:15px; font-size:0.85rem; cursor:pointer" onclick="cancelEdit()">放棄修改</button>
+        </div>
+
+        <div id="mainList"></div>
+    </div>
+
+<script>
+    Chart.register(ChartDataLabels);
+    let db = {
+        records: JSON.parse(localStorage.getItem('v41_records')) || [],
+        stocks: JSON.parse(localStorage.getItem('v41_stocks')) || ['台積電', '0050', '00878'],
+        feeOptions: JSON.parse(localStorage.getItem('v41_fees')) || [10, 0]
+    };
+    let state = { filterType: 'all', filterVal: null, chart: null };
+
+    window.onload = () => { refreshUI(); };
+    function saveDB() {
+        localStorage.setItem('v41_records', JSON.stringify(db.records));
+        localStorage.setItem('v41_stocks', JSON.stringify(db.stocks));
+        localStorage.setItem('v41_fees', JSON.stringify(db.feeOptions));
+    }
+    function refreshUI() { renderNav(); renderStockSelect(); renderFeeSelect(); renderMain(); }
+
+    // 收摺控制邏輯
+    function toggleSection(id) {
+        const list = document.getElementById(id);
+        const header = list.previousElementSibling;
+        list.classList.toggle('collapsed');
+        header.classList.toggle('collapsed');
+    }
+
+    function renderMain() {
+        const list = document.getElementById('mainList');
+        const simpleSum = document.getElementById('simpleSum');
+        const yearGrid = document.getElementById('yearGrid');
+        const chartCard = document.getElementById('chartCard');
+        list.innerHTML = '';
+        
+        let data = [...db.records];
+        if (state.filterType === 'stock') data = data.filter(r => r.name === state.filterVal);
+        else if (state.filterType === 'year') data = data.filter(r => r.year === state.filterVal);
+
+        if (state.filterType === 'year') {
+            simpleSum.classList.add('hide'); yearGrid.classList.remove('hide'); chartCard.classList.remove('hide');
+            const total = data.reduce((s, r) => s + r.total, 0);
+            const fee = data.reduce((s, r) => s + (r.fee||10), 0);
+            const net = total - fee;
+            document.getElementById('yTotal').innerText = "$" + total.toLocaleString();
+            document.getElementById('yFee').innerText = "$" + fee.toLocaleString();
+            document.getElementById('yNet').innerText = "$" + net.toLocaleString();
+            document.getElementById('yAvg').innerText = `📈 總體平均月加薪：$ ${Math.round(net/12).toLocaleString()}`;
+            
+            const stats = {};
+            data.forEach(r => {
+                if(!stats[r.name]) stats[r.name] = { gross:0, fees:0 };
+                stats[r.name].gross += r.total; stats[r.name].fees += (r.fee||10);
+            });
+            const ranked = Object.keys(stats).map(n => ({ 
+                name:n, net:stats[n].gross-stats[n].fees, monthly: Math.round((stats[n].gross-stats[n].fees)/12)
+            })).sort((a,b)=>b.net-a.net);
+
+            ranked.forEach((item) => {
+                list.innerHTML += `
+                    <div class="item" onclick="filterBy('stock', '${item.name}')">
+                        <div style="flex:1">
+                            <div class="item-title">${item.name}</div>
+                            <div class="monthly-tag tag-green">年度淨月均 $${item.monthly.toLocaleString()}</div>
+                        </div>
+                        <div style="text-align:right; margin-right:15px">
+                            <div class="item-price">$${item.net.toLocaleString()}</div>
+                            <div class="item-detail-label">年度實領淨額</div>
+                        </div>
+                    </div>`;
+            });
+            initPieChart(ranked);
+        } else {
+            yearGrid.classList.add('hide'); simpleSum.classList.remove('hide');
+            chartCard.classList.toggle('hide', state.filterType !== 'stock');
+            const totalSum = data.reduce((s, r) => s + r.total, 0);
+            document.getElementById('totalDisplay').innerText = "$" + totalSum.toLocaleString();
+            data.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(r => {
+                const f = r.fee !== undefined ? r.fee : 10;
+                const m = Math.round((r.total - f) / (r.freq || 12));
+                list.innerHTML += `
+                    <div class="item">
+                        <div style="flex:1" onclick="editRecord(${r.id})">
+                            <div class="item-title">${r.name}</div>
+                            <div class="item-detail-label">${r.date} · 實領 $${(r.total-f).toLocaleString()}</div>
+                            <div class="monthly-tag tag-blue">單筆月均 $${m.toLocaleString()}</div>
+                        </div>
+                        <div style="text-align:right; margin-right:15px">
+                            <div class="item-price">$${r.total.toLocaleString()}</div>
+                            <div class="item-detail-label">每股 $${r.per} (${r.shares}股)</div>
+                        </div>
+                        <button class="action-btn" onclick="deleteRecord(${r.id})">✕</button>
+                    </div>`;
+            });
+            if(state.filterType === 'stock') initLineChart([...data].sort((a,b)=>new Date(a.date)-new Date(b.date)));
+        }
+    }
+
+    function initPieChart(data) {
+        const ctx = document.getElementById('myChart').getContext('2d');
+        if(state.chart) state.chart.destroy();
+        state.chart = new Chart(ctx, { type:'doughnut', data:{ labels:data.map(d=>d.name), datasets:[{data:data.map(d=>d.net), backgroundColor:['#1e293b','#3b82f6','#10b981','#f59e0b','#ef4444'], borderWidth:0}]}, options:{plugins:{legend:{display:false},datalabels:{color:'#fff',font:{weight:'bold',size:11},formatter:(v,c)=>`${data[c.dataIndex].name}\n${((v/data.reduce((a,b)=>a+b.net,0))*100).toFixed(1)}%`}}}});
+    }
+    function initLineChart(data) {
+        const ctx = document.getElementById('myChart').getContext('2d');
+        if(state.chart) state.chart.destroy();
+        state.chart = new Chart(ctx, { type:'line', data:{ labels:data.map(d=>d.date), datasets:[{data:data.map(d=>d.per), borderColor:'#3b82f6', borderWidth:3, tension:0.3, fill:true, backgroundColor:'rgba(59,130,246,0.05)', pointRadius:5}]}, options:{scales:{y:{beginAtZero:false}},plugins:{legend:{display:false},datalabels:{anchor:'end',align:'top',color:'#64748b',formatter:v=>'$'+v}}}});
+    }
+
+    function saveRecord() {
+        const id = document.getElementById('editId').value;
+        const name = document.getElementById('stockSelect').value;
+        const date = document.getElementById('inputDate').value;
+        const per = parseFloat(document.getElementById('inputPer').value);
+        const shares = parseInt(document.getElementById('inputShares').value);
+        if(!name || !date || isNaN(per) || isNaN(shares)) return alert("請填寫完整");
+        const r = { id:id?parseInt(id):Date.now(), name, date, per, shares, freq:parseInt(document.getElementById('freqSelect').value), fee:parseInt(document.getElementById('feeSelect').value), total:Math.round(per*shares), year:date.split('-')[0] };
+        if(id) db.records[db.records.findIndex(x=>x.id==id)]=r; else db.records.push(r);
+        saveDB(); cancelEdit(); refreshUI();
+    }
+    function editRecord(id) {
+        const r = db.records.find(i=>i.id===id);
+        document.getElementById('editId').value=r.id; document.getElementById('stockSelect').value=r.name;
+        document.getElementById('freqSelect').value=r.freq||12; document.getElementById('feeSelect').value=r.fee!==undefined?r.fee:10;
+        document.getElementById('inputDate').value=r.date; document.getElementById('inputPer').value=r.per; document.getElementById('inputShares').value=r.shares;
+        document.getElementById('inputCard').classList.add('editing'); document.getElementById('editModeLabel').classList.remove('hide'); document.getElementById('cancelBtn').classList.remove('hide');
+        window.scrollTo({top:0, behavior:'smooth'});
+    }
+    function cancelEdit() { document.getElementById('editId').value=""; document.getElementById('inputCard').classList.remove('editing'); document.getElementById('editModeLabel').classList.add('hide'); document.getElementById('cancelBtn').classList.add('hide'); }
+    function deleteRecord(id) { if(confirm("確定刪除？")) { db.records=db.records.filter(r=>r.id!==id); saveDB(); refreshUI(); } }
+    
+    function renderNav() {
+        const sL = document.getElementById('stock-list'); const yL = document.getElementById('year-list');
+        const query = document.getElementById('sidebarSearch').value.toLowerCase();
+        sL.innerHTML=''; yL.innerHTML='';
+        const ss = [...new Set(db.records.map(r=>r.name))].filter(n=>n.toLowerCase().includes(query)).sort();
+        const ys = [...new Set(db.records.map(r=>r.year))].sort((a,b)=>b-a);
+        
+        ys.forEach(y => { const d=document.createElement('div'); d.className=`nav-item ${state.filterType==='year'&&state.filterVal===y?'active':''}`; d.innerText=y+" 年統計"; d.onclick=()=>filterBy('year',y); yL.appendChild(d); });
+        ss.forEach(s => { const d=document.createElement('div'); d.className=`nav-item ${state.filterType==='stock'&&state.filterVal===s?'active':''}`; d.innerText=s; d.onclick=()=>filterBy('stock',s); sL.appendChild(d); });
+        
+        // 動態調整收摺容器的高度
+        yL.style.maxHeight = yL.scrollHeight + "px";
+        sL.style.maxHeight = sL.scrollHeight + "px";
+    }
+
+    function filterBy(t,v) { 
+        state.filterType=t; state.filterVal=v; 
+        document.getElementById('currentViewTitle').innerText=v||"所有紀錄"; 
+        document.getElementById('nav-all').classList.toggle('active',t==='all'); 
+        refreshUI(); toggleMenu(); 
+    }
+    function renderStockSelect() { const s=document.getElementById('stockSelect'); const v=s.value; while(s.options.length>2)s.remove(2); db.stocks.sort().forEach(n=>s.add(new Option(n,n))); s.value=v; }
+    function renderFeeSelect() { const s=document.getElementById('feeSelect'); const v=s.value; while(s.options.length>0)s.remove(0); db.feeOptions.sort((a,b)=>a-b).forEach(f=>s.add(new Option(f+" 元",f))); s.add(new Option("+ 自定義","NEW_FEE")); s.value=v||10; }
+    function checkNewStock(sel) { if(sel.value==='NEW_STOCK'){const n=prompt("股票名稱："); if(n){db.stocks.push(n);saveDB();renderStockSelect();sel.value=n;}} }
+    function checkNewFee(sel) { if(sel.value==='NEW_FEE'){const f=prompt("匯費金額："); if(f){db.feeOptions.push(parseInt(f));saveDB();renderFeeSelect();sel.value=f;}} }
+    function toggleMenu() { 
+        const sb = document.getElementById('sidebar'); const ov = document.getElementById('overlay');
+        const open = sb.classList.toggle('open'); ov.style.display = open ? 'block' : 'none'; 
+    }
+    function forceReset() { if(confirm("確定清空？")) { localStorage.clear(); location.reload(); } }
+    function exportCSV() {
+        let c = "\uFEFF日期,標的,頻率,匯費,每股股息,持有股數,總計\n";
+        db.records.forEach(r=>c+=`${r.date},${r.name},${r.freq||12},${r.fee!==undefined?r.fee:10},${r.per},${r.shares},${r.total}\n`);
+        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'})); a.download=`股息紀錄.csv`; a.click();
+    }
+    function importCSV(input) {
+        const r = new FileReader();
+        r.onload=(e)=>{
+            const ls=e.target.result.split("\n"); const nR=[];
+            for(let i=1;i<ls.length;i++){
+                const c=ls[i].split(","); if(c.length>=7){
+                    const name=c[1].trim(); nR.push({id:Date.now()+i,date:c[0].trim(),name,freq:parseInt(c[2]),fee:parseInt(c[3]),per:parseFloat(c[4]),shares:parseInt(c[5]),total:parseInt(c[6]),year:c[0].trim().split("-")[0]});
+                    if(!db.stocks.includes(name)) db.stocks.push(name);
+                }
+            }
+            if(nR.length>0){db.records=nR;saveDB();refreshUI();alert("匯入成功");}
+        };
+        r.readAsText(input.files[0]);
+    }
+</script>
+</body>
+</html>
